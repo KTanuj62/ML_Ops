@@ -70,6 +70,13 @@ jobs:
           rolename = ACCOUNTADMIN
           EOF
 
+      - name: Suspend Tasks Before Deploy
+        run: |
+          echo "⏸️ Suspending tasks before deployment..."
+          ~/bin/snowsql -q "ALTER TASK IF EXISTS MLOPS_PROD_DB.RAW.TRAINING_PIPELINE_TASK SUSPEND;" || true
+          ~/bin/snowsql -q "ALTER TASK IF EXISTS MLOPS_PROD_DB.RAW.DATA_LOAD_TASK SUSPEND;" || true
+          echo "✅ Tasks suspended"
+
       - name: Deploy SQL Files
         run: |
           echo "🚀 Deploying to Snowflake..."
