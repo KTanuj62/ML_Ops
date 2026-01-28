@@ -107,14 +107,7 @@ CREATE OR REPLACE TASK TRAINING_PIPELINE_TASK
 WHEN
     SYSTEM$STREAM_HAS_DATA('RAW_SALES_STREAM')
 AS
-BEGIN
-    -- Consume stream (required for stream to reset)
-    INSERT INTO MONITORING.PIPELINE_RUN_LOG (NEW_ROWS, TRIGGER_TYPE)
-    SELECT COUNT(*), 'STREAM_TRIGGER' FROM RAW_SALES_STREAM;
-    
-    -- Run full pipeline
     CALL RAW.RUN_TRAINING_PIPELINE();
-END;
 
 -- ============================================
 -- 7. ENABLE TASKS (child first, then parent)
