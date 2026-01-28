@@ -1,0 +1,11 @@
+# Ignore data files (don't upload CSVs to GitHub)
+data/*.csv
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,187 @@
+---------------------------------------------------------------------
+-- PHASE 1: DATABASE SETUP
+---------------------------------------------------------------------
+-- Execute this entire script in Snowflake Worksheet
+
+-- ============================================
+-- 1. CREATE DATABASE
+-- ============================================
+USE ROLE ACCOUNTADMIN;
+USE WAREHOUSE COMPUTE_WH;
+
+CREATE DATABASE IF NOT EXISTS MLOPS_PROD_DB;
+USE DATABASE MLOPS_PROD_DB;
+
+-- ============================================
+-- 2. CREATE SCHEMAS
+-- ============================================
+CREATE SCHEMA IF NOT EXISTS RAW;           -- Raw ingested data
+CREATE SCHEMA IF NOT EXISTS STAGING;       -- Data validation area
+CREATE SCHEMA IF NOT EXISTS FEATURES;      -- Feature store
+CREATE SCHEMA IF NOT EXISTS MODELS;        -- Model registry, metrics
+CREATE SCHEMA IF NOT EXISTS MONITORING;    -- Drift detection, alerts
+
+-- ============================================
+-- 3. CREATE FILE FORMAT
+-- ============================================
+USE SCHEMA RAW;
+
+CREATE OR REPLACE FILE FORMAT CSV_FORMAT
+    TYPE = 'CSV'
+    FIELD_OPTIONALLY_ENCLOSED_BY = '"'
+    SKIP_HEADER = 1
+    NULL_IF = ('', 'NULL', 'null')
+    TRIM_SPACE = TRUE;
+
+-- ============================================
+-- 4. CREATE STAGE
+-- ============================================
+CREATE OR REPLACE STAGE DATA_STAGE
+    DIRECTORY = (ENABLE = TRUE);
+
+-- ============================================
+-- 5. CREATE RAW TABLES
+-- ============================================
+CREATE OR REPLACE TABLE RAW.RAW_SALES (
+    MATERIAL_GROUP VARCHAR(100),
+    MATERIAL_DESCRIPTION VARCHAR(200),
+    SOLD_STATE VARCHAR(100),
+    SUPPLY_LOCATION VARCHAR(100),
+    MONTH VARCHAR(20),
+    FY VARCHAR(20),
+    NET_SALES VARCHAR(50),
+    SOURCE_FILE VARCHAR(200),
+    LOAD_TS TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- ============================================
+-- 6. CREATE STAGING TABLES
+-- ============================================
+USE SCHEMA STAGING;
+
+CREATE OR REPLACE TABLE VALIDATION_LOG (
+    LOG_ID INT AUTOINCREMENT PRIMARY KEY,
+    BATCH_ID VARCHAR(50),
+    VALIDATION_TIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    TOTAL_RECORDS INT,
+    VALID_RECORDS INT,
+    INVALID_RECORDS INT,
+    VALIDATION_STATUS VARCHAR(20),  -- PASSED / FAILED
+    ERROR_DETAILS VARIANT
+);
+
+CREATE OR REPLACE TABLE VALIDATION_RULES (
+    RULE_ID INT AUTOINCREMENT PRIMARY KEY,
+    RULE_NAME VARCHAR(100),
+    RULE_TYPE VARCHAR(50),       -- SCHEMA / NULL_CHECK / RANGE / CUSTOM
+    COLUMN_NAME VARCHAR(100),
+    RULE_DEFINITION VARCHAR(500),
+    IS_ACTIVE BOOLEAN DEFAULT TRUE
+);
+
+-- ============================================
+-- 7. CREATE FEATURE TABLES
+-- ============================================
+USE SCHEMA FEATURES;
+
+CREATE OR REPLACE TABLE FEATURE_STORE (
+    FEATURE_ID INT AUTOINCREMENT PRIMARY KEY,
+    BRAND VARCHAR(100),
+    STATE VARCHAR(100),
+    PERIOD VARCHAR(10),
+    DS DATE,                      -- Prophet requires 'ds' column
+    Y FLOAT,                      -- Prophet requires 'y' column
+    YEAR INT,
+    MONTH INT,
+    QUARTER INT,
+    LAG_1 FLOAT,
+    LAG_2 FLOAT,
+    LAG_3 FLOAT,
+    ROLLING_AVG_3 FLOAT,
+    CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- ============================================
+-- 8. CREATE MODEL TABLES
+-- ============================================
+USE SCHEMA MODELS;
+
+CREATE OR REPLACE TABLE MODEL_REGISTRY (
+    MODEL_ID INT AUTOINCREMENT PRIMARY KEY,
+    MODEL_NAME VARCHAR(100),
+    MODEL_VERSION VARCHAR(50),
+    MODEL_TYPE VARCHAR(50),       -- PROPHET / SKLEARN / etc.
+    TRAINING_DATE TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    TRAINING_RECORDS INT,
+    MAE FLOAT,
+    RMSE FLOAT,
+    MAPE FLOAT,
+    STATUS VARCHAR(20),           -- CANDIDATE / PRODUCTION / ARCHIVED
+    PROMOTED_DATE TIMESTAMP_NTZ,
+    NOTES VARCHAR(500)
+);
+
+CREATE OR REPLACE TABLE MODEL_COMPARISON_LOG (
+    COMPARISON_ID INT AUTOINCREMENT PRIMARY KEY,
+    COMPARISON_DATE TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    PRODUCTION_MODEL_VERSION VARCHAR(50),
+    CANDIDATE_MODEL_VERSION VARCHAR(50),
+    PRODUCTION_MAE FLOAT,
+    CANDIDATE_MAE FLOAT,
+    IMPROVEMENT_PERCENT FLOAT,
+    DECISION VARCHAR(20),         -- PROMOTE / KEEP_CURRENT
+    DECISION_REASON VARCHAR(200)
+);
+
+-- ============================================
+-- 9. CREATE MONITORING TABLES
+-- ============================================
+USE SCHEMA MONITORING;
+
+CREATE OR REPLACE TABLE PREDICTION_LOG (
+    PREDICTION_ID INT AUTOINCREMENT PRIMARY KEY,
+    MODEL_VERSION VARCHAR(50),
+    PREDICTION_TIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    BRAND VARCHAR(100),
+    STATE VARCHAR(100),
+    PERIOD VARCHAR(10),
+    PREDICTED_VALUE FLOAT,
+    ACTUAL_VALUE FLOAT,
+    ERROR FLOAT
+);
+
+CREATE OR REPLACE TABLE DRIFT_METRICS (
+    DRIFT_ID INT AUTOINCREMENT PRIMARY KEY,
+    CHECK_DATE TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    METRIC_NAME VARCHAR(100),
+    BASELINE_VALUE FLOAT,
+    CURRENT_VALUE FLOAT,
+    DRIFT_SCORE FLOAT,
+    DRIFT_STATUS VARCHAR(20)      -- NORMAL / WARNING / CRITICAL
+);
+
+CREATE OR REPLACE TABLE PIPELINE_RUNS (
+    RUN_ID INT AUTOINCREMENT PRIMARY KEY,
+    RUN_TIME TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    PHASE VARCHAR(50),
+    STATUS VARCHAR(20),
+    RECORDS_PROCESSED INT,
+    DURATION_SECONDS INT,
+    ERROR_MESSAGE VARCHAR(500)
+);
+
+-- ============================================
+-- 10. VERIFY SETUP
+-- ============================================
+SHOW SCHEMAS IN DATABASE MLOPS_PROD_DB;
+SHOW TABLES IN SCHEMA RAW;
+SHOW TABLES IN SCHEMA STAGING;
+SHOW TABLES IN SCHEMA FEATURES;
+SHOW TABLES IN SCHEMA MODELS;
+SHOW TABLES IN SCHEMA MONITORING;
+
+-- ============================================
+-- NEXT STEPS:
+-- 1. Upload CSV files to @RAW.DATA_STAGE
+-- 2. Run Phase 2: Data Validation
+-- ============================================

@@ -1,0 +1,92 @@
+name: Deploy to Snowflake
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'sql/**'
+      - 'streamlit/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
+
+env:
+  SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+  SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+  SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+  SNOWFLAKE_WAREHOUSE: COMPUTE_WH
+  SNOWFLAKE_DATABASE: MLOPS_PROD_DB
+  SNOWFLAKE_ROLE: ACCOUNTADMIN
+
+jobs:
+  # ============================================
+  # JOB 1: Validate SQL (on all pushes/PRs)
+  # ============================================
+  validate:
+    name: Validate SQL Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: List SQL files
+        run: |
+          echo "📁 SQL files to deploy:"
+          ls -la sql/ || echo "No sql folder"
+
+  # ============================================
+  # JOB 2: Deploy to Snowflake (only on main)
+  # ============================================
+  deploy:
+    name: Deploy to Snowflake
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install SnowSQL CLI
+        run: |
+          curl -O https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.2/linux_x86_64/snowsql-1.2.32-linux_x86_64.bash
+          SNOWSQL_DEST=~/bin SNOWSQL_LOGIN_SHELL=~/.profile bash snowsql-1.2.32-linux_x86_64.bash
+
+      - name: Configure SnowSQL
+        run: |
+          mkdir -p ~/.snowsql
+          cat > ~/.snowsql/config << EOF
+          [connections]
+          accountname = ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          username = ${{ secrets.SNOWFLAKE_USER }}
+          password = ${{ secrets.SNOWFLAKE_PASSWORD }}
+          warehousename = COMPUTE_WH
+          dbname = MLOPS_PROD_DB
+          rolename = ACCOUNTADMIN
+          EOF
+
+      - name: Deploy SQL Files
+        run: |
+          echo "🚀 Deploying to Snowflake..."
+          
+          # Deploy procedures and monitoring (skip 01_setup - one time only)
+          for file in sql/02_*.sql sql/03_*.sql sql/04_*.sql sql/05_*.sql sql/06_*.sql sql/07_*.sql; do
+            if [ -f "$file" ]; then
+              echo "📄 Executing: $file"
+              ~/bin/snowsql -f "$file" -o exit_on_error=true
+            fi
+          done
+          
+          echo "✅ Deployment complete!"
+
+      - name: Deployment Summary
+        run: |
+          echo "## 🎉 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Database:** MLOPS_PROD_DB" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed at:** $(date)" >> $GITHUB_STEP_SUMMARY
